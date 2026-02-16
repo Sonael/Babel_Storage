@@ -171,11 +171,11 @@ BabelStorage implementa o **Protocolo BabelStorage (BSP)**, uma especificação 
 
 | Versão | Recursos | Status |
 |---------|----------|--------|
-| BSP v1  | Integridade SHA-256 no nível do arquivo | ✅ Implementado |
-| BSP v2  | Checksums SHA-256 por chunk | ✅ Implementado |
-| BSP v3  | Codificação binária estruturada | ✅ Implementado |
-| BSP v4  | Assinaturas de metadados RSA-PSS | ✅ Implementado |
-| BSP v5  | Modo estrito + verificação offline | ✅ Implementado (atual) |
+| BSP v1  | Integridade SHA-256 no nível do arquivo |  Implementado |
+| BSP v2  | Checksums SHA-256 por chunk |  Implementado |
+| BSP v3  | Codificação binária estruturada |  Implementado |
+| BSP v4  | Assinaturas de metadados RSA-PSS |  Implementado |
+| BSP v5  | Modo estrito + verificação offline |  Implementado (atual) |
 
 ### Especificações Formais
 
@@ -246,7 +246,7 @@ As especificações detalhadas do protocolo estão disponíveis no diretório `d
     python -c "from crypto_utils import generate_keys; generate_keys(\'private.pem\', \'public.pem\')"
     ```
 
-⚠️ **Nota de Segurança:** Mantenha `private.pem` seguro e nunca o envie para o controle de versão!
+**Nota de Segurança:** Mantenha `private.pem` seguro e nunca o envie para o controle de versão!
 
 ## Início Rápido
 
