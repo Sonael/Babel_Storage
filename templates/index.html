@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Babel Storage - Infinite File Storage</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <i class="fas fa-book"></i>
+                <span>Babel Storage</span>
+            </div>
+            <div class="search-bar">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="Search in Babel Storage">
+            </div>
+        </div>
+        <div class="header-right">
+            <button class="icon-btn" title="Settings">
+                <i class="fas fa-cog"></i>
+            </button>
+            <button class="icon-btn" title="Help">
+                <i class="fas fa-question-circle"></i>
+            </button>
+            <div class="user-avatar">
+                <i class="fas fa-user"></i>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <button class="new-btn" id="uploadBtn">
+                <i class="fas fa-plus"></i>
+                <span>Upload File</span>
+            </button>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active">
+                    <i class="fas fa-infinity"></i>
+                    <span>My Files</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-share-nodes"></i>
+                    <span>Shared</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-clock"></i>
+                    <span>Recent</span>
+                </a>
+                <a href="#" class="nav-item">
+                    <i class="fas fa-star"></i>
+                    <span>Starred</span>
+                </a>
+            </nav>
+
+            <div class="storage-info">
+                <div class="storage-text">Storage</div>
+                <div class="storage-bar">
+                    <div class="storage-used" style="width: 0%"></div>
+                </div>
+                <div class="storage-details">
+                    <span id="storageUsed">0 KB</span> of ∞ used
+                </div>
+                <small class="storage-note">Stored mathematically, not physically</small>
+            </div>
+        </aside>
+
+        <!-- Content Area -->
+        <main class="content">
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    <button class="view-btn active" data-view="list" title="List view">
+                        <i class="fas fa-list"></i>
+                    </button>
+                    <button class="view-btn" data-view="grid" title="Grid view">
+                        <i class="fas fa-th-large"></i>
+                    </button>
+                    <span class="separator"></span>
+                    <button class="icon-btn" title="Sort">
+                        <i class="fas fa-sort"></i>
+                    </button>
+                </div>
+                <div class="toolbar-right">
+                    <select id="sortSelect" class="sort-select">
+                        <option value="date">Sort by: Upload date</option>
+                        <option value="name">Sort by: Name</option>
+                        <option value="size">Sort by: Size</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Empty State -->
+            <div class="empty-state" id="emptyState">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <h2>No files yet</h2>
+                <p>Upload your first file to Babel Storage</p>
+                <button class="primary-btn" onclick="document.getElementById('uploadBtn').click()">
+                    Upload File
+                </button>
+            </div>
+
+            <!-- Files Container -->
+            <div class="files-container" id="filesContainer" style="display: none;">
+                <!-- List View -->
+                <div class="file-list" id="fileList">
+                    <div class="file-list-header">
+                        <div class="col-name">Name</div>
+                        <div class="col-size">Size</div>
+                        <div class="col-chunks">Chunks</div>
+                        <div class="col-uploaded">Uploaded</div>
+                        <div class="col-actions">Actions</div>
+                    </div>
+                    <!-- Files will be inserted here -->
+                </div>
+
+                <!-- Grid View -->
+                <div class="file-grid" id="fileGrid" style="display: none;">
+                    <!-- Files will be inserted here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Upload Modal -->
+    <div class="modal" id="uploadModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload File to Babel Storage</h2>
+                <button class="close-btn" onclick="closeUploadModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-area" id="uploadArea">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    <h3>Drop file here or click to browse</h3>
+                    <p>Maximum file size: 100MB</p>
+                    <input type="file" id="fileInput" hidden>
+                </div>
+                <div class="file-info" id="fileInfo" style="display: none;">
+                    <div class="file-preview">
+                        <i class="fas fa-file" id="fileIcon"></i>
+                        <div class="file-details">
+                            <div class="file-name" id="fileName"></div>
+                            <div class="file-size" id="fileSize"></div>
+                        </div>
+                    </div>
+                    <div class="estimate-info" id="estimateInfo" style="display: none;">
+                        <h4>Storage Estimate</h4>
+                        <div class="estimate-row">
+                            <span>Chunks needed:</span>
+                            <strong id="estChunks">-</strong>
+                        </div>
+                        <div class="estimate-row">
+                            <span>Upload time:</span>
+                            <strong id="estUploadTime">-</strong>
+                        </div>
+                        <div class="estimate-row">
+                            <span>Download time:</span>
+                            <strong id="estDownloadTime">-</strong>
+                        </div>
+                    </div>
+                </div>
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressMessage">Starting upload...</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="progress-time-info" style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #5f6368;">
+                        <span id="elapsedTime">Elapsed: 00:00:00</span>
+                        <span id="remainingTime">Remaining: 00:00:00</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeUploadModal()">Cancel</button>
+                <button class="primary-btn" id="uploadStartBtn" onclick="startUpload()" disabled>
+                    Upload to Babel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Info Modal -->
+    <div class="modal" id="infoModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>File Information</h2>
+                <button class="close-btn" onclick="closeInfoModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="fileInfoContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div class="notification" id="notification">
+        <div class="notification-content">
+            <i class="fas fa-check-circle"></i>
+            <span id="notificationText"></span>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
