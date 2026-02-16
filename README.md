@@ -37,36 +37,37 @@ O sistema comprime arquivos usando Zstandard, os divide em chunks, codifica cada
 
 ### Componentes do Sistema
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Sistema BabelStorage                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ binary_      │  │ file_        │  │ crypto_      │      │
-│  │ encoder      │  │ chunker      │  │ utils        │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│         │                 │                  │               │
-│         └─────────────────┴──────────────────┘               │
-│                          │                                   │
-│              ┌───────────▼───────────┐                       │
-│              │   babel.py (API)      │                       │
-│              └───────────┬───────────┘                       │
-│                          │                                   │
-│         ┌────────────────┴────────────────┐                 │
-│         │                                  │                 │
-│  ┌──────▼──────┐                  ┌───────▼────────┐        │
-│  │ babel_      │                  │ app.py         │        │
-│  │ storage.py  │                  │ (CLI)       │                  └────────────────┘        │
-│  └─────────────┘                                             │
-└─────────────────────────────────────────────────────────────┘
-                          │
-                          │ HTTPS
-                          ▼
-           ┌──────────────────────────┐
-           │  libraryofbabel.info     │
-           │  (Serviço Externo)       │
-           └──────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph BabelStorage["Sistema BabelStorage"]
+        direction TB
+
+        %% Módulos internos
+        binary_encoder["binary_encoder"]
+        file_chunker["file_chunker"]
+        crypto_utils["crypto_utils"]
+
+        %% API
+        babel_api["babel.py (API)"]
+
+        %% Outras partes
+        babel_storage["babel_storage.py"]
+        app_cli["app.py (CLI)"]
+
+        %% Conexões
+        binary_encoder --> babel_api
+        file_chunker --> babel_api
+        crypto_utils --> babel_api
+        babel_api --> babel_storage
+        babel_api --> app_cli
+    end
+
+    %% Serviço externo
+    library["libraryofbabel.info (Serviço Externo)"]
+
+    %% Conexão externa
+    BabelStorage -->|HTTPS| library
+
 ```
 
 ### Descrições dos Componentes
