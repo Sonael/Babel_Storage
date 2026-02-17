@@ -239,7 +239,6 @@ def reconstruct_file_from_chunks(
                 )
             else:
                 print(f"Warning: SHA256 mismatch at chunk {index}")
-                continue
 
         compressed_data.extend(chunk_data)
 
@@ -311,12 +310,24 @@ def verify_file_integrity(filepath: str,
 def estimate_storage_requirements(filepath: str) -> dict:
 
     file_size = os.path.getsize(filepath)
-    chunk_count = (file_size + MAX_CHUNK_BYTES - 1) // MAX_CHUNK_BYTES
-    estimated_encoded_size = int(file_size * ENCODING_OVERHEAD)
+
+    # Estimar tamanho comprimido para calcular número real de chunks.
+    # Chunks são fatias de dados Zstd comprimidos, não do arquivo original.
+    with open(filepath, "rb") as f:
+        raw_data = f.read()
+
+    import zstandard as zstd
+    cctx = zstd.ZstdCompressor(level=19)
+    compressed_size = len(cctx.compress(raw_data))
+
+    chunk_count = (compressed_size + MAX_CHUNK_BYTES - 1) // MAX_CHUNK_BYTES
+    estimated_encoded_size = int(compressed_size * ENCODING_OVERHEAD)
 
     return {
         "original_size_bytes": file_size,
         "original_size_mb": file_size / 1024 / 1024,
+        "compressed_size_bytes": compressed_size,
+        "compressed_size_mb": compressed_size / 1024 / 1024,
         "encoding_overhead": ENCODING_OVERHEAD,
         "max_chunk_bytes": MAX_CHUNK_BYTES,
         "chunk_count": chunk_count,

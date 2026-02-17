@@ -9,6 +9,8 @@ Improvements:
 - Optional metadata signature verification
 - Improved error handling
 - Production-ready configuration
+- Path Traversal protection
+- Memory Leak prevention
 """
 
 import os
@@ -432,35 +434,44 @@ def api_estimate():
     if file.filename == "":
         return jsonify({"success": False, "error": "Empty filename"}), 400
 
-    # Salva temporariamente em memória
-    file_bytes = file.read()
-    file_size = len(file_bytes)
+    # Salva com nome único para evitar colisões entre requisições simultâneas
+    safe_name = secure_filename(file.filename)
+    temp_path = os.path.join(app.config["UPLOAD_FOLDER"], f"temp_est_{time.time()}_{safe_name}")
 
-    # Exemplo de estimativa
-    chunk_size = 4096  # ajuste conforme seu sistema
-    chunks = (file_size + chunk_size - 1) // chunk_size
+    try:
+        # Salva o arquivo temporariamente para realizar a estimativa real de compressão (zstd)
+        file.save(temp_path)
+        
+        stats = file_chunker.estimate_storage_requirements(temp_path)
 
-    # Função para formatar tempo em HH:MM:SS
-    def format_time(seconds):
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        # Função para formatar tempo em HH:MM:SS
+        def format_time(seconds):
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
-    upload_seconds = chunks * 6
-    download_seconds = chunks * 1.0
+        upload_time = format_time(stats["estimated_upload_time_seconds"])
+        download_time = format_time(stats["estimated_download_time_seconds"])
 
-    upload_time = format_time(upload_seconds)
-    download_time = format_time(download_seconds)
+        return jsonify({
+            "success": True,
+            "estimate": {
+                "chunks": stats["chunk_count"],
+                "upload_time": upload_time,
+                "download_time": download_time
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        # Garante que o arquivo órfão nunca ficará preso no disco
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_error:
+                print(f"[WARNING] Erro ao limpar arquivo temporário de estimativa: {cleanup_error}")
 
-    return jsonify({
-        "success": True,
-        "estimate": {
-            "chunks": chunks,
-            "upload_time": upload_time,
-            "download_time": download_time
-        }
-    })
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
@@ -503,6 +514,12 @@ def api_upload_progress(file_id):
     progress = get_progress(file_id)
     if not progress:
         return jsonify({"success": False, "error": "Not found"}), 404
+    
+    # Garbage Collection manual da memória
+    if progress['status'] in ['completed', 'error']:
+        with progress_lock:
+            upload_progress.pop(file_id, None)
+            
     return jsonify({"success": True, "progress": progress})
 
 
@@ -513,7 +530,9 @@ def api_download(file_id):
     Download com suporte a progresso em tempo real
     """
     
-    metadata_path = os.path.join(METADATA_FOLDER, f"{file_id}.json.gz")
+    # Proteção contra Path Traversal
+    safe_file_id = secure_filename(file_id)
+    metadata_path = os.path.join(METADATA_FOLDER, f"{safe_file_id}.json.gz")
 
     if not os.path.exists(metadata_path):
         return jsonify({"success": False, "error": "File not found"}), 404
@@ -633,6 +652,12 @@ def api_download(file_id):
         import traceback
         traceback.print_exc()
         
+        # Registra o erro no progresso para limpar a memória
+        update_progress(f"download_{file_id}", {
+            "status": "error",
+            "progress": 0
+        })
+        
         return jsonify({
             "success": False,
             "error": f"Download failed: {str(e)}"
@@ -641,24 +666,34 @@ def api_download(file_id):
 
 @app.route("/api/download/<file_id>/progress")
 def api_download_progress(file_id):
-    """Retorna o progresso do download"""
+    """Retorna o progresso do download e faz limpeza se concluído"""
     progress = get_progress(f"download_{file_id}")
     if not progress:
         return jsonify({"success": False, "error": "Not found"}), 404
+        
+    # Garbage Collection manual da memória de download
+    if progress['status'] in ['completed', 'error']:
+        with progress_lock:
+            upload_progress.pop(f"download_{file_id}", None)
+            
     return jsonify({"success": True, "progress": progress})
 
 
 @app.route("/api/delete/<file_id>", methods=["DELETE"])
 def api_delete(file_id):
-
-    metadata_path = os.path.join(METADATA_FOLDER, f"{file_id}.json.gz")
+    
+    # Proteção contra Path Traversal
+    safe_file_id = secure_filename(file_id)
+    metadata_path = os.path.join(METADATA_FOLDER, f"{safe_file_id}.json.gz")
 
     if not os.path.exists(metadata_path):
         return jsonify({"success": False, "error": "File not found"}), 404
-
-    os.remove(metadata_path)
-
-    return jsonify({"success": True})
+        
+    try:
+        os.remove(metadata_path)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ==========================================

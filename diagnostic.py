@@ -86,14 +86,14 @@ def diagnose_pdf(pdf_path: str):
         print(f"   Preview: {encoded[:50]}...")
         
         # Verifica se está dentro do limite
-        if len(encoded) > 3200:
-            print(f"   ⚠️ WARNING: Texto muito longo! ({len(encoded)} > 3200)")
+        if len(encoded) > 3000:
+            print(f"   ⚠️ WARNING: Texto muito longo! ({len(encoded)} > 3000)")
             print("   O Babel pode rejeitar textos muito longos")
             print("\n   💡 SOLUÇÃO: Reduza o tamanho dos chunks")
             print("   Edite file_chunker.py e reduza MAX_CHUNK_BYTES")
             return
         else:
-            print(f"   ✅ Tamanho OK (limite: 3200)")
+            print(f"   ✅ Tamanho OK (limite: 3000)")
         
         # Diagnostica o texto encoded
         if hasattr(babel, 'diagnose_search_failure'):
@@ -123,7 +123,7 @@ def diagnose_pdf(pdf_path: str):
             if not hex_id:
                 print("   ❌ Babel retornou coordenadas vazias!")
                 print("\n   💡 POSSÍVEIS CAUSAS:")
-                print("   1. O texto é muito longo (> 3200 chars)")
+                print("   1. O texto é muito longo (> 3000 chars)")
                 print("   2. Rate limiting do servidor Babel")
                 print("   3. Timeout do servidor")
                 print("   4. Mudança no HTML da página")

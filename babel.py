@@ -39,7 +39,7 @@ VALID_NUMBERS = "0123456789"
 USER_AGENT = "LibraryOfBabelPythonWrapper/2.1"
 
 # IMPORTANTE: Limite de caracteres do Babel
-MAX_SEARCH_LENGTH = 3200  # Limite da página do Babel
+MAX_SEARCH_LENGTH = 3000  # Limite conservador, alinhado com file_chunker.MAX_BABEL_PAGE_SIZE (RFC-0002)
 
 
 # ==============================

@@ -201,17 +201,6 @@ class BabelStorage:
             strict=strict
         )
 
-        # Verificação final do arquivo completo (BSP v1)
-        self.log("Verifying final file SHA256...")
-
-        with open(output_path, "rb") as f:
-            final_hash = hashlib.sha256(f.read()).hexdigest()
-
-        if final_hash != metadata.file_hash:
-            raise RuntimeError("Final file SHA256 mismatch.")
-        else:
-            self.log("✓ Final file integrity verified")
-
         self.log("=" * 60)
         self.log(f"DOWNLOAD COMPLETE: {output_path}")
         self.log("=" * 60)
@@ -229,6 +218,7 @@ class BabelStorage:
 
         metadata = file_chunker.FileMetadata.load(metadata_path)
 
+        # 1. Verificar assinatura RSA (RFC-0005 Seção 3.3, item 1)
         self.log("Verifying metadata signature...")
 
         if not metadata.verify_signature(public_key_path):
@@ -236,16 +226,44 @@ class BabelStorage:
 
         self.log("✓ Signature valid")
 
+        # 2. Verificar campos obrigatórios (RFC-0005 Seção 3.3, item 3)
+        required_fields = {"filename", "original_size", "file_hash", "chunk_count", "chunks", "protocol_version"}
+        for field in required_fields:
+            if not hasattr(metadata, field) or getattr(metadata, field) is None:
+                msg = f"Required field missing in metadata: {field}"
+                if strict:
+                    raise RuntimeError(msg)
+                self.log(f"WARNING: {msg}", "WARNING")
+
+        # 3. Consistência da contagem de chunks (RFC-0005 Seção 3.3, item 4)
         if metadata.chunk_count != len(metadata.chunks):
             raise RuntimeError("Chunk count mismatch in metadata")
 
+        # 4. Validar formato dos hashes e estrutura de coordenadas (RFC-0005 Seção 3.3, itens 5 e 6)
+        valid_hex_chars = set("0123456789abcdef")
+        required_coord_keys = {"hex", "wall", "shelf", "volume", "page"}
+
         for chunk in metadata.chunks:
+            # Verificar presença e formato do hash SHA256 (deve ser hex de 64 chars)
             if not chunk.chunk_hash:
+                msg = f"Missing SHA256 for chunk {chunk.chunk_index}"
                 if strict:
-                    raise RuntimeError(
-                        f"Missing SHA256 for chunk {chunk.chunk_index}"
-                    )
-                self.log("WARNING: Missing chunk SHA256", "WARNING")
+                    raise RuntimeError(msg)
+                self.log(f"WARNING: {msg}", "WARNING")
+            elif len(chunk.chunk_hash) != 64 or not all(c in valid_hex_chars for c in chunk.chunk_hash):
+                msg = f"Invalid SHA256 format for chunk {chunk.chunk_index} (must be 64 hex chars)"
+                if strict:
+                    raise RuntimeError(msg)
+                self.log(f"WARNING: {msg}", "WARNING")
+
+            # Verificar estrutura de coordenadas se presentes
+            if chunk.babel_coords:
+                missing_keys = required_coord_keys - set(chunk.babel_coords.keys())
+                if missing_keys:
+                    msg = f"Incomplete coordinates for chunk {chunk.chunk_index}: missing {missing_keys}"
+                    if strict:
+                        raise RuntimeError(msg)
+                    self.log(f"WARNING: {msg}", "WARNING")
 
         self.log("✓ Metadata structure verified")
         return True
@@ -343,13 +361,13 @@ def main():
             )
 
         elif args.command == "download":
-            success = storage.download_file(
+            storage.download_file(
                 args.metadata,
                 args.output,
                 strict=args.strict,
                 public_key_path=args.pubkey
             )
-            sys.exit(0 if success else 1)
+            sys.exit(0)
 
         elif args.command == "verify-metadata":
             storage.verify_metadata_only(
@@ -360,6 +378,22 @@ def main():
 
         elif args.command == "info":
             storage.list_metadata(args.metadata)
+
+    except RuntimeError as e:
+        msg = str(e)
+        print(f"[ERROR] {msg}", file=sys.stderr)
+
+        # Códigos de saída distintos conforme RFC-0005 Seção 2.4
+        if "chunk" in msg.lower() and ("mismatch" in msg.lower() or "sha256" in msg.lower()):
+            sys.exit(1)  # chunk hash mismatch em modo estrito
+        elif "final file sha256" in msg.lower() or "final file" in msg.lower():
+            sys.exit(2)  # hash final do arquivo incorreto
+        elif "signature" in msg.lower():
+            sys.exit(3)  # assinatura inválida
+        elif "missing" in msg.lower() or "coordinates" in msg.lower() or "not found" in msg.lower():
+            sys.exit(4)  # dados ausentes
+        else:
+            sys.exit(1)
 
     except Exception as e:
         print(f"[ERROR] {e}", file=sys.stderr)

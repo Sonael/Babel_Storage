@@ -22,7 +22,7 @@ BASE = len(BABEL_ALPHABET)
 _CHAR_TO_IDX = {c: i for i, c in enumerate(BABEL_ALPHABET)}
 _IDX_TO_CHAR = {i: c for i, c in enumerate(BABEL_ALPHABET)}
 
-SUPPORTED_VERSIONS = ('a', 'b', 'c', 'd')  # v1..v5
+SUPPORTED_VERSIONS = ('a', 'b', 'c', 'd')  # enc-v1..enc-v4 (versões do encoding, independentes da versão do protocolo BSP)
 
 
 # =============================
@@ -96,7 +96,7 @@ def encode_bytes_to_babel(data: bytes) -> str:
         body_len_encoded
     )
 
-    # Version marker: 'd' for v1–v5 compatible structured encoding
+    # Marcador de versão do encoding: 'd' = enc-v4 (utilizado pelos protocolos BSP v4 e v5)
     return 'd' + prefix + body
 
 

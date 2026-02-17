@@ -93,7 +93,7 @@ Gerencia a compressão de arquivos, chunking, verificação de integridade e rec
 *   Compressão Zstandard (nível 19) antes do chunking
 *   Verificações de integridade SHA-256 (por chunk e arquivo completo)
 *   Serialização compacta de metadados (JSON gzipped)
-*   Tamanho máximo do chunk: ~1850 bytes (antes da codificação)
+*   Tamanho máximo do chunk: ~1813 bytes (antes da codificação)
 
 **Detalhes Técnicos:**
 *   Compressão: `zstd` com nível 19 para máxima taxa
