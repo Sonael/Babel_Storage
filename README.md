@@ -1,6 +1,6 @@
 # BabelStorage
 
-> Um sistema de armazenamento de arquivos distribuído usando a Biblioteca de Babel como uma camada de armazenamento imutável e pública
+> Um sistema de armazenamento de arquivos distribuído usando a Biblioteca de Babel como uma camada de armazenamento imutável e pública.
 
 [![Licença: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -226,7 +226,7 @@ As especificações detalhadas do protocolo estão disponíveis no diretório `d
 
 1.  **Clone o repositório:**
     ```bash
-    git clone https://github.com/yourusername/babelstorage.git
+    git clone https://github.com/Sonael/babelstorage.git
     cd babelstorage
     ```
 
