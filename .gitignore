@@ -2,3 +2,16 @@ __pycache__/
 *.pyc
 *.pyo
 env/
+
+# Chaves RSA — nunca versionar a chave privada
+*.pem
+
+# Configurações runtime da interface web (estado local)
+babel_config.json
+
+# Arquivos temporários de upload (apagados após o envio; recriado no startup)
+uploads/
+
+# Dados de recuperação dos arquivos (runtime; recriado no startup).
+# Faça backup desta pasta à parte — é a única forma de recuperar os arquivos.
+metadata/

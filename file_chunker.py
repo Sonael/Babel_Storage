@@ -20,6 +20,7 @@ import json
 import gzip
 import zstandard as zstd
 import crypto_utils
+import merkle
 
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
@@ -95,13 +96,17 @@ class FileMetadata:
     chunks: List[ChunkMetadata]
     protocol_version: str = "v5"
     signature: str = ""
+    # BSP v6: root of the Merkle tree over the per-chunk hashes.
+    # Empty for v5 (and older) metadata.
+    merkle_root: str = ""
+    merkle_height: int = 0
 
     # -----------------------------
     # SERIALIZATION
     # -----------------------------
 
     def to_dict(self) -> dict:
-        return {
+        data = {
             "f": self.filename,
             "s": self.original_size,
             "h": self.file_hash,
@@ -109,6 +114,14 @@ class FileMetadata:
             "v": self.protocol_version,
             "chk": [c.to_compact_list() for c in self.chunks],
         }
+
+        # Only emit the Merkle fields when present, so metadata signed
+        # under BSP v5 (whose signed dict had no such keys) still verifies.
+        if self.merkle_root:
+            data["mr"] = self.merkle_root
+            data["mh"] = self.merkle_height
+
+        return data
 
     def to_signed_dict(self) -> dict:
         base = self.to_dict()
@@ -132,7 +145,40 @@ class FileMetadata:
             chunks=chunks,
             protocol_version=data.get("v", "legacy"),
             signature=data.get("sig", ""),
+            merkle_root=data.get("mr", ""),
+            merkle_height=data.get("mh", 0),
         )
+
+    # -----------------------------
+    # MERKLE TREE (BSP v6)
+    # -----------------------------
+
+    def compute_merkle_root(self) -> str:
+        """Merkle root over the current per-chunk hashes (hex)."""
+        return merkle.compute_root_hex([c.chunk_hash for c in self.chunks])
+
+    def apply_merkle_root(self):
+        """
+        Populate merkle_root / merkle_height from the chunk hashes and mark
+        the metadata as BSP v6. Called at creation time; recomputing later
+        would only matter if the chunk set changed.
+        """
+        self.merkle_root = self.compute_merkle_root()
+        self.merkle_height = merkle.tree_height(len(self.chunks))
+        self.protocol_version = "v6"
+
+    def verify_merkle_root(self) -> bool:
+        """
+        Recompute the root from the stored chunk hashes and compare it to
+        the recorded root. True when there is no root to check (pre-v6).
+        """
+        if not self.merkle_root:
+            return True
+        return self.compute_merkle_root() == self.merkle_root
+
+    def chunk_proof(self, index: int) -> List[dict]:
+        """Inclusion proof for one chunk, against merkle_root."""
+        return merkle.build_proof_hex([c.chunk_hash for c in self.chunks], index)
 
     # -----------------------------
     # SIGNATURE (RSA)
@@ -208,14 +254,17 @@ def split_file_into_chunks(filepath: str,
 # RECONSTRUCTION
 # ============================================================
 
-def reconstruct_file_from_chunks(
+def reconstruct_bytes_from_chunks(
     chunks_data: List[Tuple[int, bytes]],
     metadata: FileMetadata,
-    output_filepath: str,
     strict: bool = False,
-):
+) -> bytes:
     """
-    Reconstruct original file from compressed chunks.
+    Reconstruct the original file in memory from compressed chunks.
+
+    Shared by the CLI (which writes the result to disk) and the web
+    interface (which streams the result to the browser), so both modes
+    apply exactly the same BSP v1/v2/v5 verification.
     """
 
     if len(chunks_data) != metadata.chunk_count:
@@ -254,6 +303,25 @@ def reconstruct_file_from_chunks(
     if final_hash != metadata.file_hash:
         raise RuntimeError("Final file SHA256 mismatch.")
 
+    return decompressed_data
+
+
+def reconstruct_file_from_chunks(
+    chunks_data: List[Tuple[int, bytes]],
+    metadata: FileMetadata,
+    output_filepath: str,
+    strict: bool = False,
+):
+    """
+    Reconstruct original file from compressed chunks and write it to disk.
+    """
+
+    decompressed_data = reconstruct_bytes_from_chunks(
+        chunks_data,
+        metadata,
+        strict=strict
+    )
+
     with open(output_filepath, "wb") as f:
         f.write(decompressed_data)
 
@@ -261,9 +329,11 @@ def reconstruct_file_from_chunks(
 # METADATA CREATION
 # ============================================================
 
-def create_file_metadata(filepath: str) -> FileMetadata:
+def create_file_metadata(filepath: str, filename: str = None) -> FileMetadata:
 
-    filename = os.path.basename(filepath)
+    # `filename` overrides the recorded name — the web saves uploads under a
+    # unique temp name, but the metadata must carry the original filename.
+    filename = filename or os.path.basename(filepath)
     file_size = os.path.getsize(filepath)
     file_hash = calculate_file_hash(filepath)
 
@@ -282,14 +352,19 @@ def create_file_metadata(filepath: str) -> FileMetadata:
             )
         )
 
-    return FileMetadata(
+    metadata = FileMetadata(
         filename=filename,
         original_size=file_size,
         file_hash=file_hash,
         chunk_count=len(chunks),
         chunks=chunks,
-        protocol_version="v5",
     )
+
+    # BSP v6: seal the chunk-hash list under a Merkle root. Done before
+    # signing so the signature (BSP v4) also protects the root.
+    metadata.apply_merkle_root()
+
+    return metadata
 
 # ============================================================
 # INTEGRITY CHECK

@@ -21,10 +21,11 @@
             </div>
         </div>
         <div class="header-right">
-            <button class="icon-btn" title="Settings">
+            <span class="protocol-badge" id="protocolBadge" title="BabelStorage Protocol version">BSP v5</span>
+            <button class="icon-btn" id="settingsBtn" title="Server settings">
                 <i class="fas fa-cog"></i>
             </button>
-            <button class="icon-btn" title="Help">
+            <button class="icon-btn" id="helpBtn" title="Protocol & CLI reference">
                 <i class="fas fa-question-circle"></i>
             </button>
             <div class="user-avatar">
@@ -41,23 +42,32 @@
                 <i class="fas fa-plus"></i>
                 <span>Upload File</span>
             </button>
-            
+
+            <button class="new-btn subtle" id="importBtn" title="Load a .json.gz produced by the CLI">
+                <i class="fas fa-file-import"></i>
+                <span>Import metadata</span>
+            </button>
+
             <nav class="nav-menu">
-                <a href="#" class="nav-item active">
+                <a href="#" class="nav-item active" data-filter="all">
                     <i class="fas fa-infinity"></i>
                     <span>My Files</span>
+                    <span class="nav-count" id="countAll">0</span>
                 </a>
-                <a href="#" class="nav-item">
-                    <i class="fas fa-share-nodes"></i>
-                    <span>Shared</span>
+                <a href="#" class="nav-item" data-filter="signed">
+                    <i class="fas fa-file-signature"></i>
+                    <span>Signed</span>
+                    <span class="nav-count" id="countSigned">0</span>
                 </a>
-                <a href="#" class="nav-item">
-                    <i class="fas fa-clock"></i>
-                    <span>Recent</span>
+                <a href="#" class="nav-item" data-filter="unsigned">
+                    <i class="fas fa-unlock"></i>
+                    <span>Unsigned</span>
+                    <span class="nav-count" id="countUnsigned">0</span>
                 </a>
-                <a href="#" class="nav-item">
-                    <i class="fas fa-star"></i>
-                    <span>Starred</span>
+                <a href="#" class="nav-item" data-filter="incomplete">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>Incomplete</span>
+                    <span class="nav-count" id="countIncomplete">0</span>
                 </a>
             </nav>
 
@@ -85,15 +95,21 @@
                         <i class="fas fa-th-large"></i>
                     </button>
                     <span class="separator"></span>
-                    <button class="icon-btn" title="Sort">
-                        <i class="fas fa-sort"></i>
+                    <button class="icon-btn" id="sortDirBtn" title="Toggle sort direction">
+                        <i class="fas fa-arrow-down-wide-short"></i>
                     </button>
                 </div>
                 <div class="toolbar-right">
+                    <label class="strict-toggle" title="RFC-0005: abort on any integrity failure instead of warning">
+                        <input type="checkbox" id="strictToggle">
+                        <span class="strict-track"><span class="strict-thumb"></span></span>
+                        <span class="strict-label">Strict mode</span>
+                    </label>
                     <select id="sortSelect" class="sort-select">
                         <option value="date">Sort by: Upload date</option>
                         <option value="name">Sort by: Name</option>
                         <option value="size">Sort by: Size</option>
+                        <option value="chunks">Sort by: Chunks</option>
                     </select>
                 </div>
             </div>
@@ -143,7 +159,7 @@
                 <div class="upload-area" id="uploadArea">
                     <i class="fas fa-cloud-upload-alt"></i>
                     <h3>Drop file here or click to browse</h3>
-                    <p>Maximum file size: 100MB</p>
+                    <p>Maximum file size: <span id="maxSizeLabel">100.0 MB</span></p>
                     <input type="file" id="fileInput" hidden>
                 </div>
                 <div class="file-info" id="fileInfo" style="display: none;">
@@ -157,6 +173,10 @@
                     <div class="estimate-info" id="estimateInfo" style="display: none;">
                         <h4>Storage Estimate</h4>
                         <div class="estimate-row">
+                            <span>Compressed size:</span>
+                            <strong id="estCompressed">-</strong>
+                        </div>
+                        <div class="estimate-row">
                             <span>Chunks needed:</span>
                             <strong id="estChunks">-</strong>
                         </div>
@@ -169,6 +189,15 @@
                             <strong id="estDownloadTime">-</strong>
                         </div>
                     </div>
+
+                    <!-- Equivalente de `upload --privkey` (BSP v4) -->
+                    <label class="option-row" id="signRow">
+                        <input type="checkbox" id="signCheckbox">
+                        <span class="option-text">
+                            <strong>Sign metadata (RSA-PSS)</strong>
+                            <small id="signHint">Proves authenticity on download — BSP v4</small>
+                        </span>
+                    </label>
                 </div>
                 <div class="progress-container" id="progressContainer" style="display: none;">
                     <div class="progress-bar">
@@ -178,8 +207,9 @@
                         <span id="progressMessage">Starting upload...</span>
                         <span id="progressPercent">0%</span>
                     </div>
-                    <div class="progress-time-info" style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: #5f6368;">
+                    <div class="progress-time-info">
                         <span id="elapsedTime">Elapsed: 00:00:00</span>
+                        <span id="chunkCounter"></span>
                         <span id="remainingTime">Remaining: 00:00:00</span>
                     </div>
                 </div>
@@ -193,9 +223,52 @@
         </div>
     </div>
 
+    <!-- Download Modal -->
+    <div class="modal" id="downloadModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Restoring from Babel</h2>
+                <button class="close-btn" onclick="closeDownloadModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="file-preview">
+                    <i class="fas fa-file-arrow-down"></i>
+                    <div class="file-details">
+                        <div class="file-name" id="downloadName"></div>
+                        <div class="file-size" id="downloadMeta"></div>
+                    </div>
+                </div>
+                <div class="badge-row" id="downloadBadges"></div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="downloadFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="downloadMessage">Starting...</span>
+                        <span id="downloadPercent">0%</span>
+                    </div>
+                    <div class="progress-time-info">
+                        <span id="downloadElapsed">Elapsed: 00:00:00</span>
+                        <span id="downloadChunks"></span>
+                        <span id="downloadRemaining">Remaining: 00:00:00</span>
+                    </div>
+                </div>
+                <p class="modal-note">
+                    Each chunk is fetched from libraryofbabel.info and checked against its
+                    SHA-256. Keep this tab open until the file is ready.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeDownloadModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- File Info Modal -->
     <div class="modal" id="infoModal">
-        <div class="modal-content">
+        <div class="modal-content wide">
             <div class="modal-header">
                 <h2>File Information</h2>
                 <button class="close-btn" onclick="closeInfoModal()">
@@ -204,6 +277,200 @@
             </div>
             <div class="modal-body">
                 <div id="fileInfoContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Verify Modal -->
+    <div class="modal" id="verifyModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Offline Metadata Verification</h2>
+                <button class="close-btn" onclick="closeVerifyModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="verifyContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeVerifyModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Metadata Modal -->
+    <div class="modal" id="importModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Metadata</h2>
+                <button class="close-btn" onclick="closeImportModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-note">
+                    Load a <code>.json.gz</code> produced by the CLI
+                    (<code>upload --metadata</code>) or exported from another instance.
+                    The coordinates it contains are all that is needed to restore the file.
+                </p>
+                <div class="upload-area" id="importArea">
+                    <i class="fas fa-file-import"></i>
+                    <h3>Drop metadata here or click to browse</h3>
+                    <p>BabelStorage metadata (.json.gz)</p>
+                    <input type="file" id="importInput" accept=".gz" hidden>
+                </div>
+                <div id="importResult"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeImportModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Server Settings</h2>
+                <button class="close-btn" onclick="closeSettingsModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="settingsContent"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeSettingsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div class="modal" id="helpModal">
+        <div class="modal-content wide">
+            <div class="modal-header">
+                <h2>Protocol &amp; CLI Reference</h2>
+                <button class="close-btn" onclick="closeHelpModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-note">
+                    This interface and <code>babel_storage.py</code> share the same engine
+                    (BSP v6), so every action here has an identical CLI equivalent.
+                </p>
+
+                <h4 class="section-title" style="margin-top:0">Actions ↔ CLI</h4>
+                <table class="kv-table">
+                    <tr><th>Web action</th><th>CLI equivalent</th></tr>
+                    <tr>
+                        <td>Upload File</td>
+                        <td><code>upload &lt;file&gt; --metadata out.json.gz</code></td>
+                    </tr>
+                    <tr>
+                        <td>Upload with “Sign metadata”</td>
+                        <td><code>upload … --privkey private.pem</code></td>
+                    </tr>
+                    <tr>
+                        <td>Download (with Strict mode)</td>
+                        <td><code>download out.json.gz --output file --pubkey public.pem --strict</code></td>
+                    </tr>
+                    <tr>
+                        <td>Verify (shield)</td>
+                        <td><code>verify-metadata out.json.gz --pubkey public.pem --strict</code></td>
+                    </tr>
+                    <tr>
+                        <td>Verify one chunk (shield in Info)</td>
+                        <td><code>verify-chunk out.json.gz --index N --pubkey public.pem</code></td>
+                    </tr>
+                    <tr>
+                        <td>Info / Export / Import metadata</td>
+                        <td><code>info out.json.gz</code> · the <code>--metadata</code> file itself</td>
+                    </tr>
+                    <tr>
+                        <td>Re-sign (in Info, when invalid)</td>
+                        <td>re-run <code>upload … --privkey</code> with the current key</td>
+                    </tr>
+                </table>
+
+                <h4 class="section-title">Server Settings (gear icon)</h4>
+                <p class="modal-note">
+                    Editable and saved to <code>babel_config.json</code>, applied
+                    immediately — no restart. Each has a CLI/env equivalent:
+                </p>
+                <table class="kv-table">
+                    <tr><th>Setting</th><th>What it does</th><th>CLI / env</th></tr>
+                    <tr>
+                        <td>Rate limit</td>
+                        <td>Delay between chunks on upload (0 disables). Be kind to libraryofbabel.info.</td>
+                        <td><code>upload --rate-limit</code> · <code>BABEL_RATE_LIMIT</code></td>
+                    </tr>
+                    <tr>
+                        <td>Max upload size</td>
+                        <td>Largest file the web upload accepts.</td>
+                        <td><code>BABEL_MAX_FILE_SIZE</code> (bytes)</td>
+                    </tr>
+                    <tr>
+                        <td>Retries per chunk</td>
+                        <td>Attempts before a chunk transfer gives up.</td>
+                        <td><code>--max-retries</code> · <code>BABEL_MAX_RETRIES</code></td>
+                    </tr>
+                    <tr>
+                        <td>Retry backoff</td>
+                        <td>Initial wait between retries, doubled each try.</td>
+                        <td><code>--retry-delay</code> · <code>BABEL_RETRY_DELAY</code></td>
+                    </tr>
+                    <tr>
+                        <td>Strict by default</td>
+                        <td>Initial state of the Strict-mode toggle.</td>
+                        <td><code>--strict</code> · <code>BABEL_STRICT</code></td>
+                    </tr>
+                </table>
+                <p class="modal-note">
+                    Startup-only (not editable here): host, port, debug and key paths —
+                    set via <code>BABEL_HOST</code>, <code>BABEL_PORT</code>,
+                    <code>BABEL_DEBUG</code>, <code>BABEL_PRIVATE_KEY</code>,
+                    <code>BABEL_PUBLIC_KEY</code>.
+                </p>
+
+                <h4 class="section-title">Strict mode (RFC-0005)</h4>
+                <p class="modal-note">
+                    Off: a chunk whose SHA-256 does not match is reported as a warning and
+                    the restore continues. On: the restore aborts on the first integrity
+                    failure — chunk hash, final file hash, missing coordinates, chunk
+                    count, Merkle root, or an invalid signature.
+                </p>
+
+                <h4 class="section-title">Merkle verification (BSP v6)</h4>
+                <p class="modal-note">
+                    Each file carries a Merkle root over its chunk hashes. The shield next
+                    to a chunk in <strong>Info</strong> proves that one chunk is authentic
+                    by fetching only it — no full download.
+                </p>
+
+                <h4 class="section-title">Signatures &amp; keys</h4>
+                <p class="modal-note">
+                    A <span class="badge signed">signed</span> badge means the signature
+                    verifies with the current public key;
+                    <span class="badge invalid">signature invalid</span> means it does not
+                    — usually because the key was regenerated. Use
+                    <strong>Re-sign with current key</strong> in Info to fix it. Generate a
+                    key pair with the <strong>Generate RSA-4096 key pair</strong> button in
+                    Settings, or via the CLI:
+                </p>
+                <pre class="code-block">python -c "from crypto_utils import generate_keys; generate_keys('private.pem', 'public.pem')"</pre>
+
+                <h4 class="section-title">Resuming uploads</h4>
+                <p class="modal-note">
+                    An interrupted upload leaves a partial metadata (shown as
+                    <span class="badge warn">missing</span>). From the CLI, re-run the same
+                    <code>upload</code> command to resume — already-uploaded chunks are
+                    skipped.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary-btn" onclick="closeHelpModal()">Close</button>
             </div>
         </div>
     </div>

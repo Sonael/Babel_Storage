@@ -4,7 +4,7 @@
 
 [![Licença: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Protocolo: BSP v5](https://img.shields.io/badge/protocol-BSP%20v5-green.svg)](docs/)
+[![Protocolo: BSP v6](https://img.shields.io/badge/protocol-BSP%20v6-green.svg)](docs/)
 
 ## Resumo
 
@@ -26,11 +26,8 @@ O sistema comprime arquivos usando Zstandard, os divide em chunks, codifica cada
 *   [Início Rápido](#início-rápido)
 *   [Uso da CLI](#uso-da-cli)
 *   [Interface Web](#interface-web)
-*   [Formato de Metadados](#formato-de-metadados)
-*   [Considerações de Segurança](#considerações-de-segurança)
-*   [Desempenho e Limitações](#desempenho-e-limitações)
-*   [Desenvolvimento](#desenvolvimento)
-*   [Contribuição](#contribuição)
+*   [Roteiro de Desenvolvimento](#roteiro-de-desenvolvimento)
+*   [Perguntas Frequentes](#perguntas-frequentes)
 *   [Licença](#licença)
 
 ## Arquitetura
@@ -84,7 +81,7 @@ Gerencia a conversão bidirecional entre dados binários arbitrários e o alfabe
 **Detalhes Técnicos:**
 *   Conjunto de caracteres: 29 símbolos (26 letras + espaço, ponto, vírgula)
 *   Esquema de codificação: prefixo estruturado com campos de comprimento
-*   Marcador de versão: `d` para BSP v5
+*   Marcador de versão do encoding: `d` (enc-v4), usado pelos protocolos BSP v4, v5 e v6
 
 #### 2. **file_chunker.py**
 Gerencia a compressão de arquivos, chunking, verificação de integridade e reconstrução.
@@ -92,6 +89,7 @@ Gerencia a compressão de arquivos, chunking, verificação de integridade e rec
 **Principais Características:**
 *   Compressão Zstandard (nível 19) antes do chunking
 *   Verificações de integridade SHA-256 (por chunk e arquivo completo)
+*   Raiz de árvore Merkle sobre os hashes por chunk (BSP v6)
 *   Serialização compacta de metadados (JSON gzipped)
 *   Tamanho máximo do chunk: ~1813 bytes (antes da codificação)
 
@@ -99,7 +97,7 @@ Gerencia a compressão de arquivos, chunking, verificação de integridade e rec
 *   Compressão: `zstd` com nível 19 para máxima taxa
 *   Cálculo do tamanho do chunk: `MAX_BABEL_PAGE_SIZE / ENCODING_OVERHEAD - 8`
 *   Formato de metadados: Arrays compactos para minimizar o armazenamento
-*   Versão do protocolo: BSP v5
+*   Versão do protocolo: BSP v6
 
 #### 3. **crypto_utils.py**
 Fornece assinaturas digitais baseadas em RSA para autenticação de metadados.
@@ -115,6 +113,15 @@ Fornece assinaturas digitais baseadas em RSA para autenticação de metadados.
 *   Comprimento do salt: PSS.MAX_LENGTH
 *   Preenchimento: PKCS#1 PSS
 *   Formato da chave: PEM (PKCS#8 para privada, SubjectPublicKeyInfo para pública)
+
+#### 3.1 **merkle.py**
+Constrói a árvore Merkle SHA-256 sobre os hashes por chunk e gera/valida provas de inclusão (BSP v6).
+
+**Principais Características:**
+*   Raiz determinística (folhas = hashes por chunk, duplicação do último nó em nível ímpar)
+*   Provas de inclusão de comprimento ⌈log₂N⌉
+*   Verificação de prova sem acesso à rede
+*   Trabalha diretamente sobre os hashes hex já presentes nos metadados
 
 #### 4. **babel.py**
 Wrapper de cliente HTTP para a API da Biblioteca de Babel.
@@ -138,7 +145,8 @@ Interface de linha de comando para operações de arquivo.
 **Comandos:**
 *   `upload` — Comprime, codifica, busca e armazena coordenadas
 *   `download` — Recupera, decodifica, descomprime e verifica
-*   `verify-metadata` — Verificação de integridade offline (assinatura + estrutura)
+*   `verify-metadata` — Verificação de integridade offline (assinatura + estrutura + raiz Merkle)
+*   `verify-chunk` — Prova a autenticidade de um único chunk via prova Merkle (BSP v6)
 *   `info` — Exibe detalhes dos metadados
 
 **Recursos:**
@@ -150,18 +158,29 @@ Interface de linha de comando para operações de arquivo.
 #### 6. **app.py** (Interface Web)
 Aplicativo web baseado em Flask para acesso via navegador.
 
+O `app.py` **não reimplementa o protocolo**: ele instancia a mesma classe
+`BabelStorage` usada pela CLI e apenas traduz os eventos de progresso do motor
+para JSON. Isso garante que as verificações BSP não possam divergir entre os
+dois modos.
+
 **Recursos:**
 *   Upload de arquivos com arrastar e soltar
-*   Monitoramento de progresso em tempo real
-*   Listagem de arquivos com busca/ordenação
-*   Download direto do navegador
+*   Assinatura RSA opcional da metadata (equivalente a `--privkey`)
+*   Modo estrito e verificação de assinatura no download (`--strict`, `--pubkey`)
+*   Verificação offline da metadata (equivalente a `verify-metadata`)
+*   Inspeção completa de chunks e coordenadas (equivalente a `info`)
+*   Exportação e importação do artefato `.json.gz`
+*   Monitoramento de progresso em tempo real (upload **e** download)
+*   Listagem de arquivos com busca, filtros e ordenação
 *   UI responsiva (inspirada no Google Drive)
 
 **Detalhes Técnicos:**
 *   Framework: Flask com suporte a threading
-*   Rastreamento de progresso: Dicionário thread-safe com locks
-*   Manipulação de upload: Workers em segundo plano com threads daemon
-*   Download: Reconstrução em memória com BytesIO
+*   Motor compartilhado: `babel_storage.BabelStorage` com `progress_cb`
+*   Rastreamento de jobs: Dicionário thread-safe com locks e expiração (TTL)
+*   Manipulação de upload/download: Workers em segundo plano com threads daemon
+*   Download: Reconstrução em memória com BytesIO, entregue por job
+*   Proteção contra Path Traversal em todos os identificadores de arquivo
 
 ## Especificações do Protocolo
 
@@ -175,7 +194,8 @@ BabelStorage implementa o **Protocolo BabelStorage (BSP)**, uma especificação 
 | BSP v2  | Checksums SHA-256 por chunk |  Implementado |
 | BSP v3  | Codificação binária estruturada |  Implementado |
 | BSP v4  | Assinaturas de metadados RSA-PSS |  Implementado |
-| BSP v5  | Modo estrito + verificação offline |  Implementado (atual) |
+| BSP v5  | Modo estrito + verificação offline |  Implementado |
+| BSP v6  | Raiz Merkle + verificação parcial de chunk |  Implementado (atual) |
 
 ### Especificações Formais
 
@@ -187,6 +207,7 @@ As especificações detalhadas do protocolo estão disponíveis no diretório `d
 *   [RFC 0004](docs/rfc-0004.md) — Assinatura de Metadados (BSP v4)
 *   [RFC 0005](docs/rfc-0005.md) — Modo Estrito e Verificação Offline (BSP v5)
 *   [RFC 0006](docs/rfc-0006.md) — Extensões Futuras e Roteiro
+*   [RFC 0007](docs/rfc-0007.md) — Verificação por Árvore Merkle (BSP v6)
 
 ## Instalação
 
@@ -245,8 +266,10 @@ As especificações detalhadas do protocolo estão disponíveis no diretório `d
     ```bash
     python -c "from crypto_utils import generate_keys; generate_keys(\'private.pem\', \'public.pem\')"
     ```
+    Ou, pela interface web, use o botão **Generate RSA-4096 key pair** em
+    **Server Settings** (ícone de engrenagem).
 
-**Nota de Segurança:** Mantenha `private.pem` seguro e nunca o envie para o controle de versão!
+**Nota de Segurança:** Mantenha `private.pem` seguro e nunca o envie para o controle de versão! O `.gitignore` já cobre `*.pem`.
 
 ## Início Rápido
 
@@ -297,22 +320,213 @@ python babel_storage.py info document.json.gz
 python babel_storage.py upload <arquivo> --metadata <saida.json.gz> [opções]
 
 Opções:
-  --privkey PATH    Assinar metadados com chave privada
+  --privkey PATH         Assinar metadados com chave privada (BSP v4)
+  --rate-limit SEGUNDOS  Intervalo entre chunks (padrão 1.5s; 0 desativa)
+  --max-retries N        Tentativas por chunk antes de desistir (padrão 4)
+  --retry-delay SEGUNDOS Backoff inicial entre tentativas, dobra a cada vez (padrão 2s)
+  --no-resume            Ignorar metadata parcial e reenviar todos os chunks
+  --quiet                Suprimir saída de progresso
+```
+
+**Retomada automática**: se o upload for interrompido, basta rodar o mesmo
+comando de novo. A metadata é salva a cada chunk e serve como arquivo de
+progresso — os chunks já enviados são pulados (reencontrar suas coordenadas é
+determinístico). A retomada só ocorre quando o arquivo é o mesmo (verificado
+pelo hash); um arquivo alterado recomeça do zero. Use `--no-resume` para forçar
+o reenvio completo.
+
+**Rate limit**: o intervalo padrão de 1.5s entre chunks existe para não
+sobrecarregar o `libraryofbabel.info`, um serviço de terceiros gratuito. Ajuste
+com `--rate-limit` apenas se souber o que está fazendo.
+
+### Comando Download
+
+```bash
+python babel_storage.py download <metadata.json.gz> --output <arquivo> [opções]
+
+Opções:
+  --pubkey PATH          Verificar a assinatura da metadata antes de baixar
+  --strict               Abortar em qualquer falha de integridade (BSP v5)
+  --max-retries N        Tentativas por chunk antes de desistir (padrão 4)
+  --retry-delay SEGUNDOS Backoff inicial entre tentativas (padrão 2s)
+  --quiet                Suprimir saída de progresso
+```
+
+### Comando verify-metadata
+
+```bash
+python babel_storage.py verify-metadata <metadata.json.gz> --pubkey <chave.pem> [opções]
+
+Opções:
+  --strict          Tratar avisos como falhas
   --quiet           Suprimir saída de progresso
 ```
+
+Não acessa a rede. Verifica assinatura, campos obrigatórios, contagem de
+chunks, formato dos hashes SHA-256, estrutura das coordenadas e a raiz Merkle.
+
+### Comando verify-chunk (BSP v6)
+
+```bash
+python babel_storage.py verify-chunk <metadata.json.gz> --index <N> [opções]
+
+Opções:
+  --pubkey PATH     Verificar a assinatura da metadata antes (recomendado)
+  --strict          Reservado para simetria com os demais comandos
+  --quiet           Suprimir saída de progresso
+```
+
+Recupera **apenas** o chunk `N` da Biblioteca de Babel e prova sua autenticidade
+contra a raiz Merkle através de uma prova de inclusão (⌈log₂N⌉ hashes), sem baixar
+o arquivo inteiro. Só funciona com metadados BSP v6. Consulte a
+[RFC 0007](docs/rfc-0007.md).
+
+### Comando Info
+
+```bash
+python babel_storage.py info <metadata.json.gz>
+```
+
+### Códigos de Saída
+
+Conforme a [RFC 0005](docs/rfc-0005.md) Seção 2.4:
+
+| Código | Significado |
+|--------|-------------|
+| 0 | Todas as verificações passaram |
+| 1 | Incompatibilidade de hash de chunk em modo estrito |
+| 2 | Hash final do arquivo incorreto |
+| 3 | Assinatura RSA inválida |
+| 4 | Dados ausentes (coordenadas, campos obrigatórios) |
+
+## Interface Web
+
+A interface web expõe **todas** as operações da CLI através do navegador. Ambos
+os modos executam o mesmo motor (`babel_storage.BabelStorage`), então o
+comportamento de verificação é idêntico.
+
+### Executando
+
+```bash
+python app.py
+```
+
+Por padrão o servidor escuta em `http://127.0.0.1:5000`.
+
+### Configuração
+
+Há dois grupos de configuração.
+
+**Configurações editáveis** — ajustáveis pelo painel **Server Settings** (ícone
+de engrenagem) **em tempo real**, sem reiniciar, e persistidas em
+`babel_config.json`. Cada uma tem um equivalente na CLI/ambiente:
+
+| Configuração | Padrão | Web (Settings) | CLI / env |
+|--------------|--------|----------------|-----------|
+| Intervalo entre chunks | `1.5s` | Rate limit | `upload --rate-limit` · `BABEL_RATE_LIMIT` |
+| Tamanho máx. de upload | `100 MB` | Max upload size | `BABEL_MAX_FILE_SIZE` (bytes) |
+| Tentativas por chunk | `4` | Retries per chunk | `--max-retries` · `BABEL_MAX_RETRIES` |
+| Backoff inicial de retry | `2s` | Retry backoff | `--retry-delay` · `BABEL_RETRY_DELAY` |
+| Modo estrito padrão | `on` | Strict by default | `--strict` · `BABEL_STRICT` |
+
+Precedência na inicialização: padrões → variáveis de ambiente →
+`babel_config.json` (a última edição feita pela interface vence). Para voltar
+aos padrões, apague o `babel_config.json`.
+
+**Configurações de inicialização** — só via ambiente, exigem reiniciar o
+servidor (não editáveis pela web por segurança):
+
+| Variável | Padrão | Descrição |
+|----------|--------|-----------|
+| `BABEL_HOST` | `127.0.0.1` | Endereço de escuta |
+| `BABEL_PORT` | `5000` | Porta |
+| `BABEL_DEBUG` | `0` | Debugger do Werkzeug (**nunca** ligue em rede pública: ele executa código arbitrário) |
+| `BABEL_PRIVATE_KEY` | `private.pem` | Chave usada para assinar metadados |
+| `BABEL_PUBLIC_KEY` | `public.pem` | Chave usada para verificar assinaturas |
+| `BABEL_CONFIG_FILE` | `babel_config.json` | Onde as configurações editáveis são persistidas |
+
+O painel **Server Settings** também traz o botão **Generate RSA-4096 key pair**
+para criar o par de chaves sem sair do navegador (equivalente ao
+`crypto_utils.generate_keys`). A chave privada é escrita apenas no servidor e
+nunca é devolvida ao navegador; regenerar por cima de uma chave existente exige
+confirmação, pois invalida toda metadata já assinada.
+
+### Equivalência com a CLI
+
+| Ação na web | Equivalente na CLI |
+|-------------|--------------------|
+| **Upload File** | `upload <arquivo> --metadata <saida.json.gz>` |
+| **Upload File** + *Sign metadata* | `upload ... --privkey private.pem` |
+| **Download** (com *Strict mode* ligado) | `download ... --strict --pubkey public.pem` |
+| **Verify** (escudo) | `verify-metadata ... --pubkey public.pem [--strict]` |
+| **Verify** de um chunk (escudo por linha no Info) | `verify-chunk ... --index N --pubkey public.pem` |
+| **Info** (círculo de informação) | `info <metadata.json.gz>` |
+| **Export metadata** | o próprio arquivo `--metadata` |
+| **Import metadata** | copiar um `.json.gz` para `metadata/` |
+
+O botão **Export metadata** é o mais importante da interface: o `.json.gz` é a
+única coisa que torna um arquivo recuperável. O **Import metadata** aceita
+qualquer `.json.gz` gerado pela CLI, permitindo restaurar pelo navegador algo
+que foi enviado pelo terminal.
+
+### Modo Estrito
+
+O interruptor **Strict mode** na barra de ferramentas vale para downloads e
+verificações, exatamente como a flag `--strict`:
+
+*   **Ligado** — o restauro aborta no primeiro chunk cujo SHA-256 não confere.
+*   **Desligado** — a divergência é registrada como aviso e o restauro continua
+    (normalmente falhando depois na descompressão ou no hash final).
+
+### Endpoints da API
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `GET` | `/api/config` | Configurações atuais, limites e info do servidor |
+| `POST` | `/api/settings` | Atualiza e persiste configurações editáveis (rate, max upload, retries, strict) |
+| `POST` | `/api/keys/generate` | Gera o par de chaves RSA no servidor (aceita `{"force": bool}`) |
+| `POST` | `/api/files/<id>/resign` | Re-assina a metadata com a chave atual |
+| `GET` | `/api/files` | Lista os arquivos com estado de assinatura |
+| `GET` | `/api/files/<id>/info` | Metadados completos e coordenadas dos chunks |
+| `POST` | `/api/files/<id>/verify` | Verificação offline (aceita `{"strict": bool}`) |
+| `POST` | `/api/files/<id>/verify-chunk` | Verificação parcial de um chunk via Merkle (aceita `{"index": N}`) |
+| `GET` | `/api/files/<id>/metadata` | Baixa o artefato `.json.gz` |
+| `POST` | `/api/metadata/import` | Importa um `.json.gz` |
+| `POST` | `/api/estimate` | Estimativa real de chunks e tempo (com compressão) |
+| `POST` | `/api/upload` | Inicia o upload (campo `sign=1` para assinar) |
+| `GET` | `/api/upload/progress/<id>` | Progresso do upload |
+| `POST` | `/api/download/<id>/start` | Inicia o restauro em segundo plano |
+| `GET` | `/api/download/job/<job>` | Progresso do restauro |
+| `GET` | `/api/download/job/<job>/file` | Entrega os bytes restaurados (uso único) |
+| `GET` | `/api/download/<id>` | Restauro síncrono, para scripts |
+| `DELETE` | `/api/delete/<id>` | Remove a metadata |
+
+O restauro é assíncrono porque leva cerca de 1 segundo por chunk: servir os
+bytes na mesma requisição deixaria o navegador em uma conexão sem resposta e
+sem qualquer indicação de progresso.
+
+### Limitações
+
+*   O upload de um arquivo grande leva minutos (~1,5 s por chunk por conta do
+    rate limiting da Biblioteca de Babel). Mantenha a aba aberta.
+*   Um restauro concluído fica em memória no servidor até ser buscado ou
+    expirar (15 minutos).
+*   Não há autenticação. O servidor é para uso local; qualquer pessoa com
+    acesso à porta pode ler, enviar e apagar metadados.
 
 ## Roteiro de Desenvolvimento
 
 ### Curto Prazo (v1.1)
 *   [ ] Uploads de chunk paralelos com limitação de taxa
-*   [ ] Retomada de progresso após interrupção
-*   [ ] Melhorias na UI Web (melhores mensagens de erro)
+*   [x] Retomada de progresso após interrupção (CLI: reexecute o mesmo `upload`)
+*   [x] Paridade da UI Web com a CLI (assinatura, modo estrito, verificação, info)
+*   [x] Melhorias na UI Web (mensagens de erro com dicas acionáveis)
 *   [ ] Suíte de testes abrangente
 *   [ ] Containerização Docker
 *   [ ] Escolha de nível de compressão
 
 ### Médio Prazo (v1.2)
-*   [ ] Árvore Merkle para verificação parcial
+*   [x] Árvore Merkle para verificação parcial (BSP v6 — [RFC 0007](docs/rfc-0007.md))
 *   [ ] Opção de criptografia do lado do cliente
 *   [ ] Estratégias de redundância/backup de metadados
 *   [ ] Melhorias na UI Web (Arrastar e soltar múltiplos arquivos, etc.)
